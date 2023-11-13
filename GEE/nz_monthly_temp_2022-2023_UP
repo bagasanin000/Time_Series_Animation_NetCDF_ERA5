@@ -1,0 +1,162 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var country = ee.FeatureCollection("USDOS/LSIB_SIMPLE/2017"),
+    image1 = ee.ImageCollection("ECMWF/ERA5_LAND/MONTHLY_AGGR"),
+    title_loc = /* color: #d63000 */ee.Geometry.Point([163.9429243344529, -33.83468506740288]),
+    title2_loc = /* color: #98ff00 */ee.Geometry.Point([175.46650308897114, -48.718600359630805]),
+    gradientbar_loc = 
+    /* color: #0b4a8b */
+    /* displayProperties: [
+      {
+        "type": "rectangle"
+      }
+    ] */
+    ee.Geometry.Polygon(
+        [[[172.91767496397108, -49.49533480247329],
+          [172.91767496397108, -50.56797273524583],
+          [180.65204996397114, -50.56797273524583],
+          [180.65204996397114, -49.49533480247329]]], null, false),
+    region = 
+    /* color: #d63000 */
+    /* displayProperties: [
+      {
+        "type": "rectangle"
+      }
+    ] */
+    ee.Geometry.Polygon(
+        [[[163.03752715962733, -33.43347359653635],
+          [163.03752715962733, -51.45552436122182],
+          [181.9779568471274, -51.45552436122182],
+          [181.9779568471274, -33.43347359653635]]], null, false);
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+// Set ROI
+var nz = country.filter(ee.Filter.eq('country_co', 'NZ'))
+Map.centerObject(nz, 5)
+      
+// Import image
+var dataset = image1.select('temperature_2m').filterBounds(nz)
+
+// Group image
+var col = dataset.map(function(img) {
+  var doy = ee.Date(img.get('system:time_start')).getRelative('month', 'year')
+  return img.set('doy', doy)
+})
+
+var distinctDOY = col.filterDate('2022-09-30', '2023-09-30')
+var filter = ee.Filter.equals({leftField: 'doy', rightField: 'doy'})
+var join = ee.Join.saveAll('doy_matches')
+var joinCol = ee.ImageCollection(join.apply(distinctDOY, col, filter))
+
+// Apply median reduction among matching DOY collections
+var comp = joinCol.map(function(img) {
+  var doyCol = ee.ImageCollection.fromImages(
+    img.get('doy_matches')
+  );
+  return doyCol.reduce(ee.Reducer.mean()).subtract(273.15);
+});
+
+print(comp.limit(5))
+
+// Chart
+var chart =
+    ui.Chart.image
+        .series({
+          imageCollection: comp,
+          region: region,
+          reducer: ee.Reducer.mean(),
+          scale: 800,
+          xProperty: 'system:index'
+        })
+        .setSeriesNames(['2m Mean Temperature'])
+        .setOptions({
+          title: 'Monthly Mean Temperature of New Zealand Oct 22 - Sept 23',
+          hAxis: {title: 'Date (Year - Month)', titleTextStyle: {italic: false, bold: true}},
+          vAxis: {
+            title: 'Temperature (°C)',
+            titleTextStyle: {italic: false, bold: true}
+          },
+          lineWidth: 5,
+          colors: ['#028f8e'],
+          curveType: 'function'
+        })
+        
+print(chart)
+
+// Vis
+
+var pal = [
+  "#5E4FA2", "#3288BD", "#66C2A5",
+  "#ABDDA4", "#E6F598", "#FEE08B",
+  "#FDAE61", "#F46D43", "#D53E4F",
+  "#9E0142"
+  ]
+
+// Define RGB viz parameters
+var visParams = {
+  min: -5.0,
+  max: 25,
+  palette: pal
+};
+
+// Animate
+
+// Import packages
+var text = require('users/gena/packages:text')
+var utils = require('users/gena/packages:utils')
+var style = require('users/gena/packages:style')
+
+// Create RGB visualization images for use as animation frames.
+var rgbVis = comp.map(function(img) {
+var textVis = {fontSize: 14, textColor: 'ffffff',
+  outlineColor: '000000', outlineWidth: 1.5,
+  outlineOpacity: 0.5}
+  
+  // Title
+  var title = 'Temperature in NZ Oct 22 - Sept 23'
+  var scale = 8000
+  Map.addLayer(title_loc)
+  var title_text = text.draw(title, title_loc, scale, {fontSize: 14})
+  
+  // Date
+  var scale1 = 8000
+  var date_loc = text.getLocation(region, 'left', '10%', '5%')
+  var date_label = text.draw(img.get('system:index'), date_loc, scale1, textVis)
+
+  // Gradient Bar
+  Map.addLayer(gradientbar_loc)
+    var labels = ee.List.sequence(-5, 25, 10)
+    var gradientBar = style.GradientBar.draw(gradientbar_loc,{
+                      min: -5, max: 25, palette: visParams.palette, labels: labels,
+                      format: '%.0f', text: {fontSize: 14,
+                      outlineColor: '000000', outlineWidth: 1,
+                      outlineOpacity: 1}})
+      
+  // Temp Label
+  var Temp_label = 'Temp (Celsius)'
+  Map.addLayer(title2_loc)
+  var Temp_text = text.draw(Temp_label, title2_loc, scale1, {fontSize: 10})
+  
+return img.visualize(visParams)
+  .clip(nz)
+  .blend(title_text)
+  .blend(date_label)
+  .blend(gradientBar)
+  .blend(Temp_text)
+})
+
+// Define GIF viz parameters.
+var gifParams = {
+  'region': region,
+  'dimensions': 400,
+  'crs': 'EPSG:3857',
+  'framesPerSecond': 2
+}
+
+// Print the GIF URL to the console.
+print(rgbVis.getVideoThumbURL(gifParams))
+
+// Render the GIF animation in the console.
+print(ui.Thumbnail(rgbVis, gifParams))
+
+
+
+
